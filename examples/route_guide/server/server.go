@@ -230,9 +230,40 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to generate credentials %v", err)
 		}
-		opts = []grpc.ServerOption{grpc.Creds(creds)}
+		opts = []grpc.ServerOption{grpc.Creds(creds), grpc.UnaryInterceptor(AuthUnaryServerInterceptor)}
+	} else {
+                opts = []grpc.ServerOption{grpc.UnaryInterceptor(AuthUnaryServerInterceptor),
+                                        grpc.StreamInterceptor(AuthStreamServerInterceptor) }
 	}
-	grpcServer := grpc.NewServer(opts...)
+        grpcServer := grpc.NewServer(opts...)
 	pb.RegisterRouteGuideServer(grpcServer, newServer())
 	grpcServer.Serve(lis)
+}
+
+func AuthUnaryServerInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+
+        fmt.Printf("Intercepting unary: %s \n", info.FullMethod)
+        resp, err = handler(ctx, req)
+        return
+}
+
+func AuthStreamServerInterceptor(req interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+
+        dl, ok := ss.Context().Deadline()
+        fmt.Printf("Intercepting stream: %s %v %v %v \n", info.FullMethod, ok, dl, time.Now())
+        //time.Sleep(3*time.Second)
+        ch := make(chan error, 1)
+        go func() {
+                if err := handler(req, ss); err != nil {
+                        ch<-err
+                }
+                ch<-nil
+        }()
+        select {
+        case <-ss.Context().Done():
+                fmt.Printf("Context.Done() %v \n", time.Now())
+        case err=<-ch:
+                fmt.Printf("Error chan %v \n", time.Now())
+        }
+        return
 }
